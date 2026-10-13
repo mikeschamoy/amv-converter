@@ -16,8 +16,7 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-appl
 h1{margin:0;font-size:27px}.sub{color:var(--muted);margin:5px 0 18px;line-height:1.35}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:15px;margin-bottom:13px}
 .label{font-size:12px;color:var(--muted);letter-spacing:.06em;margin-bottom:8px}
-.segment,.fpsRow,.modeRow,.viewRow{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
-.fpsRow,.modeRow,.viewRow{grid-template-columns:1fr 1fr}
+.segment{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
 .segment button,.sizeRow button,.fpsRow button,.modeRow button,.viewRow button{
   background:var(--card2);color:var(--text);border:1px solid var(--line);
   border-radius:11px;padding:11px 8px;font-weight:700
@@ -41,6 +40,7 @@ canvas{position:absolute;inset:0;width:100%;height:100%;background:#000}
 .controls button{background:#202832;color:#fff;border:1px solid #35404d;border-radius:9px;padding:8px 11px;font-weight:800}
 input[type=range]{width:100%}.time{font-size:11px;color:var(--muted);min-width:38px;text-align:right}
 .sizeRow{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.sizeRow button{padding:10px 3px}
+.fpsRow,.modeRow,.viewRow{display:grid;grid-template-columns:1fr 1fr;gap:7px}
 .detail{margin-top:10px;color:var(--muted);font-size:13px;line-height:1.45}
 pre{white-space:pre-wrap;word-break:break-word;background:#090b0e;border:1px solid var(--line);border-radius:12px;padding:12px;font-size:12px;line-height:1.45;margin:8px 0 10px}
 .primary,.secondary,.danger{width:100%;border:0;border-radius:11px;padding:12px;color:white;font-weight:850;font-size:15px}
@@ -54,7 +54,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#090b0e;border:1px sol
 <body>
 <div class="wrap">
   <h1>AMV Preset Checker + Converter</h1>
-  <div class="sub">Pick a host video, preview what the 320×240 player should show, tweak the framing if you want, then convert to AMV in the same page.</div>
+  <div class="sub">Pick a host video, preview the 320×240 player view, tweak framing if desired, then convert to AMV on this device.</div>
 
   <div class="card">
     <div class="label">CONTENT TYPE</div>
@@ -87,7 +87,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#090b0e;border:1px sol
         <button data-view="player" class="active">Player View</button>
         <button data-view="encoded">Raw AMV Frame</button>
       </div>
-      <div class="note"><span class="good">Player View</span> compensates for the player's horizontal quirk, so it is the view to judge for centering. <span class="warn">Raw AMV Frame</span> shows the actual -32-shifted encoded crop before the player shifts it back visually.</div>
+      <div class="note"><span class="good">Player View</span> is the one to judge for centering. <span class="warn">Raw AMV Frame</span> shows the literal encoded crop containing the -32 correction.</div>
       <div style="height:12px"></div>
       <div class="label">320×240 PLAYER PREVIEW</div>
       <div class="previewOuter">
@@ -103,7 +103,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#090b0e;border:1px sol
           </div>
         </div>
       </div>
-      <div class="note">For YouTube sources, Player View is intentionally centered even though the generated command contains <b>-32</b>; that offset is there to counter the way this player displays the encoded frame.</div>
+      <div class="note">For YouTube presets, Player View compensates for the player's horizontal display quirk, while the actual generated AMV command still keeps the proven -32 correction.</div>
     </div>
 
     <div id="sizeCard" class="card">
@@ -133,7 +133,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#090b0e;border:1px sol
         <button data-fps="25">25 FPS</button>
         <button data-fps="30">30 FPS</button>
       </div>
-      <div class="note">Automatically chosen from the source. You can override it.</div>
+      <div class="note">Automatically selected from the source. You can override it.</div>
     </div>
 
     <div class="card">
@@ -145,7 +145,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#090b0e;border:1px sol
 
     <div class="card">
       <div class="label">CONVERT HERE</div>
-      <div class="note">The first conversion loads the browser FFmpeg engine (about 30 MB). Conversion happens on this device; the video is not uploaded. Browser conversion is best for smaller files. Large movies may be slower or run out of browser memory.</div>
+      <div class="note">FFmpeg is loaded from this same GitHub Pages site. The selected host video stays on the device and is processed locally in the browser.</div>
       <button id="convert" class="primary" style="margin-top:12px">CONVERT TO AMV</button>
       <button id="cancel" class="danger hidden">CANCEL CONVERSION</button>
       <div class="progress"><div id="bar"></div></div>
@@ -155,6 +155,8 @@ pre{white-space:pre-wrap;word-break:break-word;background:#090b0e;border:1px sol
 </div>
 
 <script type="module">
+import { FFmpeg } from './ffmpeg/index.js';
+
 const $=id=>document.getElementById(id);
 const file=$('file'),video=$('video'),main=$('main'),status=$('status'),canvas=$('canvas'),ctx=canvas.getContext('2d');
 const res=$('resolution'),sourceFps=$('sourceFps'),aspect=$('aspect'),durationEl=$('duration'),recommended=$('recommended');
@@ -163,7 +165,7 @@ const sizeCard=$('sizeCard'),fourThreeCard=$('fourThreeCard'),fourThreeDetail=$(
 const presetName=$('presetName'),code=$('code'),copy=$('copy'),convertBtn=$('convert'),cancelBtn=$('cancel'),bar=$('bar'),convertStatus=$('convertStatus');
 
 let blobURL=null,currentFile=null,contentType='youtube',detectedFps=null,outputFps=30,selectedHeight=208,recommendedHeight=208;
-let fourThree=false,fourThreeMode='full',viewMode='player',raf=null,currentArgs=[],ffmpeg=null,ffmpegLoaded=false,abortController=null;
+let fourThree=false,fourThreeMode='full',viewMode='player',raf=null,currentArgs=[],ffmpeg=null,ffmpegLoaded=false;
 
 function fmtTime(s){
   if(!Number.isFinite(s)) return '0:00';
@@ -257,7 +259,6 @@ function draw(){
       ctx.drawImage(video,0,0,sw,sh,0,0,320,240);
     }else{
       badge.textContent=`${viewMode==='player'?'Player':'Raw AMV'} view • 4:3 preserve`;
-      // Raw frame has the image at x=32. Player-view compensates visually by shifting it left 32.
       const dx=viewMode==='player'?0:32;
       ctx.drawImage(video,0,0,sw,sh,dx,12,288,216);
     }
@@ -271,8 +272,6 @@ function draw(){
   const scaledW=sw*scaleH/sh;
   const center=(scaledW-320)/2;
   const rawX=Math.max(0,Math.min(center-32,Math.max(0,scaledW-320)));
-  // The device's display quirk effectively shifts the raw encoded crop back by +32.
-  // To preview what the user sees on the actual player, use the centered source crop.
   const shownX=viewMode==='player'
     ? Math.max(0,Math.min(center,Math.max(0,scaledW-320)))
     : rawX;
@@ -338,7 +337,7 @@ file.onchange=()=>{
     durationEl.textContent=fmtTime(video.duration);
     main.classList.remove('hidden');draw();await detectFPS();
   },{once:true});
-  video.addEventListener('error',()=>{status.innerHTML='<span class="warn">Browser cannot preview this format. MP4/H.264 works best in the HTML version.</span>'},{once:true});
+  video.addEventListener('error',()=>{status.innerHTML='<span class="warn">Browser cannot preview this format. MP4/H.264 works best in this HTML version.</span>'},{once:true});
 };
 
 $('typeButtons').onclick=e=>{const b=e.target.closest('button');if(!b)return;contentType=b.dataset.type;setActiveButtons($('typeButtons'),'type',contentType);updateRecommendation()};
@@ -348,29 +347,31 @@ $('modeButtons').onclick=e=>{const b=e.target.closest('button');if(!b)return;fou
 $('viewButtons').onclick=e=>{const b=e.target.closest('button');if(!b)return;viewMode=b.dataset.view;setActiveButtons($('viewButtons'),'view',viewMode);draw()};
 copy.onclick=async()=>{try{await navigator.clipboard.writeText(code.textContent);copy.textContent='COPIED';setTimeout(()=>copy.textContent='COPY PRESET',1200)}catch(e){}};
 
-async function loadFFmpeg(){
+async function ensureFFmpeg(){
   if(ffmpegLoaded)return true;
-  convertStatus.textContent='Loading browser FFmpeg engine (~30 MB)…';
+  convertStatus.textContent='Loading local FFmpeg engine…';
   try{
-    const ffm = await import('https://esm.sh/@ffmpeg/ffmpeg@0.12.10?bundle');
-    const util = await import('https://esm.sh/@ffmpeg/util@0.12.1?bundle');
-    const {FFmpeg}=ffm,{toBlobURL}=util;
     ffmpeg=new FFmpeg();
     ffmpeg.on('progress',({progress})=>{
-      const p=Math.max(0,Math.min(1,progress||0));bar.style.width=(p*100).toFixed(1)+'%';
+      const p=Math.max(0,Math.min(1,progress||0));
+      bar.style.width=(p*100).toFixed(1)+'%';
       convertStatus.textContent=`Converting… ${(p*100).toFixed(1)}%`;
     });
     ffmpeg.on('log',({message})=>{
-      if(message && message.includes('time=')) convertStatus.textContent='Converting… '+message.slice(-80);
+      if(message && /time=/.test(message)) convertStatus.textContent='Converting… '+message.slice(-90);
     });
-    const base='https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd';
-    await ffmpeg.load({
-      coreURL:await toBlobURL(`${base}/ffmpeg-core.js`,'text/javascript'),
-      wasmURL:await toBlobURL(`${base}/ffmpeg-core.wasm`,'application/wasm')
+
+    const base=new URL('./ffmpeg/',window.location.href);
+    const ok=await ffmpeg.load({
+      coreURL:new URL('ffmpeg-core.js',base).href,
+      wasmURL:new URL('ffmpeg-core.wasm',base).href
     });
-    ffmpegLoaded=true;convertStatus.textContent='Converter ready.';return true;
+    ffmpegLoaded=true;
+    convertStatus.textContent='Converter ready.';
+    return true;
   }catch(e){
-    convertStatus.innerHTML='<span class="bad">Could not load browser FFmpeg. This version needs internet for the engine on first use and may not run from every local-file browser.</span>';
+    console.error(e);
+    convertStatus.innerHTML='<span class="bad">Could not load the local FFmpeg engine. Make sure ffmpeg-core.js, ffmpeg-core.wasm, index.js and worker.js are all published in the /ffmpeg folder.</span>';
     return false;
   }
 }
@@ -383,34 +384,50 @@ convertBtn.onclick=async()=>{
   }
   convertBtn.disabled=true;cancelBtn.classList.remove('hidden');bar.style.width='0%';
   try{
-    if(!await loadFFmpeg())return;
-    const inName='input'+(currentFile.name.match(/\.[^.]+$/)?.[0]||'.mp4');
+    if(!await ensureFFmpeg())return;
+
+    const ext=currentFile.name.match(/\.[^.]+$/)?.[0]||'.mp4';
+    const inName='input'+ext;
     const outName='output.amv';
+
     convertStatus.textContent='Loading host video into converter…';
-    const bytes=new Uint8Array(await currentFile.arrayBuffer());
-    await ffmpeg.writeFile(inName,bytes);
+    await ffmpeg.writeFile(inName,new Uint8Array(await currentFile.arrayBuffer()));
     try{await ffmpeg.deleteFile(outName)}catch(e){}
-    abortController=new AbortController();
-    const args=['-i',inName,...currentArgs,outName];
+
     convertStatus.textContent='Converting…';
-    const rc=await ffmpeg.exec(args,-1,{signal:abortController.signal});
+    const rc=await ffmpeg.exec(['-i',inName,...currentArgs,outName]);
     if(rc!==0)throw new Error('FFmpeg returned '+rc);
+
     const data=await ffmpeg.readFile(outName);
-    const blob=new Blob([data.buffer],{type:'application/octet-stream'});
+    const outBlob=new Blob([data.buffer],{type:'application/octet-stream'});
     const a=document.createElement('a');
     const base=currentFile.name.replace(/\.[^.]+$/,'');
-    a.href=URL.createObjectURL(blob);a.download=base+'.amv';a.click();
+    a.href=URL.createObjectURL(outBlob);
+    a.download=base+'.amv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
     setTimeout(()=>URL.revokeObjectURL(a.href),5000);
-    bar.style.width='100%';convertStatus.textContent='Done — AMV saved to Downloads.';
+
+    bar.style.width='100%';
+    convertStatus.textContent='Done — AMV download started.';
     try{await ffmpeg.deleteFile(inName);await ffmpeg.deleteFile(outName)}catch(e){}
   }catch(e){
-    if(String(e).toLowerCase().includes('abort'))convertStatus.textContent='Conversion cancelled.';
-    else convertStatus.innerHTML='<span class="bad">Conversion failed. The browser FFmpeg build may not support this input/AMV encoder, or the file may be too large for browser memory.</span>';
+    console.error(e);
+    convertStatus.innerHTML='<span class="bad">Conversion failed. The browser build may not support this input/AMV encoder, or the file may be too large for browser memory.</span>';
   }finally{
-    convertBtn.disabled=false;cancelBtn.classList.add('hidden');abortController=null;
+    convertBtn.disabled=false;cancelBtn.classList.add('hidden');
   }
 };
-cancelBtn.onclick=()=>{if(abortController)abortController.abort()};
+
+cancelBtn.onclick=async()=>{
+  if(ffmpeg){
+    try{ffmpeg.terminate()}catch(e){}
+    ffmpeg=null;ffmpegLoaded=false;
+    convertStatus.textContent='Conversion cancelled.';
+    convertBtn.disabled=false;cancelBtn.classList.add('hidden');
+  }
+};
 </script>
 </body>
 </html>
